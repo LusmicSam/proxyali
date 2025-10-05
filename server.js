@@ -4,51 +4,39 @@ const cors = require('cors');
 
 const app = express();
 
-// Enable CORS for all origins
+// Enable CORS for all origins so your app can access the proxy
 app.use(cors());
 
-// Target domains allowed for proxying
-const allowedTargets = [
-  'https://alicdn.com',
-  'https://aliexpress.com',
-  'https://*.akamai.net'
-];
-
-// Create proxy middleware with CORS headers fix
+// Proxy middleware with dynamic target from ?url=
 app.use('/proxy', createProxyMiddleware({
-  target: '', // will be dynamically set per request
   changeOrigin: true,
   router: (req) => {
-    // Extract target URL from query
     const targetUrl = req.query.url;
-    if (!targetUrl) return null;
-    // Validate allowed domains
-    const allowed = allowedTargets.some(domain => {
-      const regex = new RegExp(domain.replace(/\*/g, '.*'));
-      return regex.test(targetUrl);
-    });
-    if (!allowed) return null;
+    if (!targetUrl || typeof targetUrl !== 'string' || targetUrl.trim() === '') {
+      // No valid target URL, skip proxy to avoid error
+      return null;
+    }
     return targetUrl;
   },
-  onProxyRes: function(proxyRes, req, res) {
-    // Add CORS headers on proxy response
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', '*');
+  onProxyReq(proxyReq, req, res) {
+    // Set headers needed by AliExpress CDN to allow proper access
+    proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36');
+    proxyReq.setHeader('Referer', 'https://www.aliexpress.com/');
   },
-  logLevel: 'debug',
-  pathRewrite: {
-    '^/proxy': '',
-  }
+  onError(err, req, res) {
+    console.error('Proxy error:', err); // Log for debugging
+    res.status(500).send('Internal Server Error');
+  },
+  logLevel: 'debug'
 }));
 
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
   res.send('Proxy server is running.');
 });
 
+// Start server on port from env or 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Proxy server listening on port ${PORT}`);
 });
-
-
